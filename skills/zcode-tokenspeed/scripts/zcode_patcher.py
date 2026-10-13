@@ -1235,7 +1235,7 @@ let validPids=new Set(rules.map(r=>r&&r.providerId).filter(Boolean));
 let validUrls=new Set(rules.map(r=>r&&r.config&&r.config.api&&r.config.api.baseUrl?String(r.config.api.baseUrl).trim().replace(/\/+$/,""):"").filter(Boolean));
 if(rules.length>0){
 for(let k0 of Object.keys(cfg.provider||{})){
-if(String(k0).startsWith("builtin:"))continue;
+if(String(k0).startsWith("builtin:")||String(k0).startsWith("account:"))continue;
 let bu=String((cfg.provider[k0]&&cfg.provider[k0].options&&cfg.provider[k0].options.baseURL)||"").trim().replace(/\/+$/,"");
 if(!validPids.has(k0)&&(!bu||!validUrls.has(bu))){
 delete cfg.provider[k0];
@@ -1246,6 +1246,7 @@ for(let rule of rules){
 let pid=rule&&rule.providerId;
 if(!pid)continue;
 let c=rule.config||{},api=c.api||{};
+let acc=String(pid).startsWith("account:");
 let old=cfg.provider[pid];
 if(!old||typeof old!="object"||Array.isArray(old))old=cfg.provider[pid]={};
 let models=(old.models&&typeof old.models=="object"&&!Array.isArray(old.models))?old.models:(old.models={});
@@ -1256,9 +1257,13 @@ let id=id0.trim();
 if(!id||models[id])continue;
 models[id]={limit:{context:1000000,output:128000},modalities:{input:["text","image"],output:["text"]},zcode:{modalitiesConfigured:!0,modified:!0}}
 }
+// account: 供应商（套餐/登录态）不补 name/kind/source：补了会让它在 config.json 视图里
+// 变成普通自定义供应商，回写时把 api-key/api.type 等接入字段塞进 provider_config
+if(!acc){
 if(!old.name)old.name=rule.providerName||pid;
 if(!old.kind)old.kind=kt(api.type||"");
 if(!old.source)old.source="custom";
+}
 let opts=(old.options&&typeof old.options=="object"&&!Array.isArray(old.options))?old.options:(old.options={});
 if(!opts.baseURL&&api.baseUrl)opts.baseURL=api.baseUrl;
 }
@@ -1331,21 +1336,37 @@ if(!rule){
 let bu=String((pdata.options&&pdata.options.baseURL)||"").replace(/\/+$/,"");
 if(bu){for(let r2 of rules){let u=(r2&&r2.config&&r2.config.api&&r2.config.api.baseUrl)||"";
 if(u.replace(/\/+$/,"")===bu){rule=r2;break}}}}
-// 只有当存在有效模型（正在添加/同步）时，才为全新供应商创建 rule，严禁自动复活已删除条目
-if(!rule&&ids.length>0){rule={providerId:pid,providerName:pdata.name||pid,config:{group:"standard-personal",access:{type:"api-key"},api:{type:kt(pdata.kind||"")},personalModelIds:[],modelOrder:[]}};rules.push(rule);byId[pid]=rule}
+// 只有当存在有效模型（正在添加/同步）时，才为全新供应商创建 rule，严禁自动复活已删除条目；
+// account: 供应商用精简模板——接入字段（group/access/api）归账号体系管，塞了会被当成普通自定义供应商
+if(!rule&&ids.length>0){rule=String(pid).startsWith("account:")?{providerId:pid,providerName:pdata.name||pid,config:{personalModelIds:[],modelOrder:[]}}:{providerId:pid,providerName:pdata.name||pid,config:{group:"standard-personal",access:{type:"api-key"},api:{type:kt(pdata.kind||"")},personalModelIds:[],modelOrder:[]}};rules.push(rule);byId[pid]=rule}
 if(!rule)continue;
 
 let c=rule.config=rule.config||{};
+// account:（套餐/登录态）供应商不写接入字段：凭据与协议归账号体系管
+let isAcc=String(pid).startsWith("account:");
+if(!isAcc){
 c.group=c.group||"standard-personal";
 c.access=c.access||{type:"api-key"};
 if(pdata.options&&pdata.options.apiKey)c.access.apiKey=pdata.options.apiKey;
 c.api=c.api||{};
 if(pdata.options&&pdata.options.baseURL)c.api.baseUrl=pdata.options.baseURL;
-if(pdata.kind)c.api.type=kt(pdata.kind);
-// 保序：既有顺序保留、新模型追加末尾（整体覆盖会打乱用户在界面里排好的顺序）
-let oldOrder=Array.isArray(c.modelOrder)?c.modelOrder.filter(function(x){return ids.indexOf(x)>=0}):[];
-c.personalModelIds=oldOrder.concat(ids.filter(function(x){return oldOrder.indexOf(x)<0}));
-c.modelOrder=c.personalModelIds.slice();
+// provider_config 的 api.type（responses/anthropic-messages 等细分类）比 config.json 的 kind（粗分类）更准：
+// 仅在缺失时按 kind 兜底，禁止反向覆盖（实测 responses/anthropic 被拉平成 chat-completions 导致请求走错协议）
+if(pdata.kind&&!c.api.type)c.api.type=kt(pdata.kind);
+}
+// 保序追加：既有顺序保留、新模型追加末尾（整体覆盖会打乱用户在界面里排好的顺序）。
+// account: 的 modelOrder/personalModelIds 含服务端下发模型（不在 config.json 里），
+// 严禁按 ids 过滤重建——否则套餐模型全被裁掉（实测 GLM-5.3/GLM-5.3-Flash 从模型弹窗消失）
+let oldOrder=isAcc?(Array.isArray(c.modelOrder)?c.modelOrder.slice():[]):(Array.isArray(c.modelOrder)?c.modelOrder.filter(function(x){return ids.indexOf(x)>=0}):[]);
+oldOrder=oldOrder.concat(ids.filter(function(x){return oldOrder.indexOf(x)<0}));
+if(isAcc){
+let pids0=Array.isArray(c.personalModelIds)?c.personalModelIds.slice():[];
+c.personalModelIds=pids0.concat(ids.filter(function(x){return pids0.indexOf(x)<0}));
+c.modelOrder=oldOrder;
+}else{
+c.personalModelIds=oldOrder;
+c.modelOrder=oldOrder.slice();
+}
 let oldRules={},keep=[];
 let manual=new Set();
 let manualArr=(pc.config&&pc.config.modelConfigRules&&pc.config.modelConfigRules.manualProviderModelRules)||[];
@@ -1353,18 +1374,23 @@ for(let m of manualArr){
 if(m&&m.modelId)manual.add(m.providerId+"/"+m.modelId)
 }
 for(let m of mrules){
-if(m&&m.providerId===pid){oldRules[m.modelId]=m;continue}
+if(m&&m.providerId===pid){oldRules[m.modelId]=m;if(isAcc){keep.push(m)}continue}
 keep.push(m)
 }
 for(let mid of ids){
-if(oldRules[mid]&&!manual.has(pid+"/"+mid)){keep.push(oldRules[mid]);continue}
-if(manual.has(pid+"/"+mid))continue;
+// account: 的模型规则由客户端管理：旧规则全部保留、不按 ids 裁剪、也不替它新增
+if(oldRules[mid]){if(!isAcc&&!manual.has(pid+"/"+mid)){keep.push(oldRules[mid])}continue}
+if(isAcc||manual.has(pid+"/"+mid))continue;
 let ent=models[mid]||{};
 keep.push({modelId:mid,providerId:pid,config:{properties:{contextWindow:(ent.limit&&ent.limit.context)||1000000}}})
 }
 mrules.length=0;
 for(let m of keep)mrules.push(m)
 }
+// 防御：providerOrder 必须覆盖全部 providerRules——客户端重建 order 时可能漏项，
+// 漏了的供应商会带着全部模型从界面消失（实测 d322619f 掉出后 glm-5.3-flash 不见）
+let po=Array.isArray(pc.config.providerOrder)?pc.config.providerOrder:(pc.config.providerOrder=[]);
+for(let r3 of rules){if(r3&&r3.providerId&&po.indexOf(r3.providerId)<0)po.push(r3.providerId)}
 if(!n.existsSync(pcPath+".puller-bak"))try{n.writeFileSync(pcPath+".puller-bak",n.readFileSync(pcPath,"utf-8"))}catch(a2){}
 let tmpPc=pcPath+".tmp";
 n.writeFileSync(tmpPc,JSON.stringify(pc,null,2),"utf-8");

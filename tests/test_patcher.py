@@ -826,6 +826,49 @@ class TestGeneratedJs(unittest.TestCase):
         self.assertIn("renameSync", code, "配置写入应为原子替换")
         self.assertIn("oldOrder", code, "modelOrder 应保序")
 
+    def test_puller_write_never_truncates_account_models(self):
+        """★ 回归：拉取按钮保存后「其他模型选项消失」的主根因。
+
+        account: 供应商（套餐/登录态）的 modelOrder/personalModelIds 含服务端下发
+        模型（不在 config.json 里），旧 write 逻辑按 config.json 的 ids 过滤重建，
+        把它们全部裁掉——实测 GLM-5.3/GLM-5.3-Flash 从模型弹窗消失。新逻辑必须
+        对 account: 只追加、不裁剪，且不写 access/api/group 等接入字段。
+        """
+        code = zp._models_main_block("j").decode()
+        self.assertIn('let isAcc=String(pid).startsWith("account:");', code,
+                      "write 循环必须区分 account: 供应商")
+        # account 分支的 modelOrder 走 slice 保序（不允许 filter 按 ids 裁剪）
+        self.assertIn("isAcc?(Array.isArray(c.modelOrder)?c.modelOrder.slice():[])", code)
+        # 接入字段块必须包在 !isAcc 里（account 不塞 api-key/api.type/group）
+        self.assertIn("if(!isAcc){\nc.group=", code)
+        # read 侧：account 不补 kind/source（否则 config.json 视图被污染回写）
+        self.assertIn('let acc=String(pid).startsWith("account:");', code)
+        self.assertIn("if(!acc){\nif(!old.name)", code)
+
+    def test_puller_never_overwrites_api_type_with_kind(self):
+        """★ 回归：api.type 被 config.json 的 kind 反推覆盖。
+
+        provider_config 的 api.type 是细分类（openai-responses / anthropic-messages），
+        config.json 的 kind 是粗分类（openai / openai-compatible / anthropic）。
+        旧逻辑 `if(pdata.kind)c.api.type=kt(pdata.kind)` 无条件覆盖，实测把
+        responses/anthropic 全拉平成 chat-completions，请求走错协议。
+        """
+        code = zp._models_main_block("j").decode()
+        self.assertNotIn("if(pdata.kind)c.api.type", code,
+                         "禁止无条件用 kind 覆盖 api.type")
+        self.assertIn("if(pdata.kind&&!c.api.type)c.api.type=kt(pdata.kind)", code,
+                      "只允许在 api.type 缺失时兜底")
+
+    def test_puller_backfills_provider_order(self):
+        """★ 回归：客户端重建 providerOrder 时可能漏供应商，write 必须防御性补全。
+
+        实测 d322619f 掉出 providerOrder 后，其名下 glm-5.3-flash 从界面消失
+        （数据完好，仅 order 数组缺项）。
+        """
+        code = zp._models_main_block("j").decode()
+        self.assertIn("pc.config.providerOrder", code,
+                      "写回前必须把 providerRules 的 providerId 补全进 providerOrder")
+
     def test_preload_injection_is_valid_js(self):
         self._check("const o={" + zp._models_preload_block("_").decode()
                     + zp._enhance_preload_block("_").decode() + "x:1};")
