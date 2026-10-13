@@ -2,10 +2,14 @@
 
 本项目代码为原创实现。以下部分包含来自第三方的代码或设计参考，按相应许可要求在此集中声明。
 
-## 1. 模型拉取前端脚本（MIT License）
+## 1. 模型拉取前端脚本（MIT License，已随 0.6.x 退役）
 
-- 文件：`skills/zcode-tokenspeed/scripts/zcode-model-puller.js`
-- 同一项目的配置同步逻辑被移植到 `skills/zcode-tokenspeed/scripts/model_pull.py`（命令行版）
+- 0.6.x 曾 vendored 的 `skills/zcode-tokenspeed/scripts/zcode-model-puller.js` 及其配置同步逻辑
+  移植版 `model_pull.py` **已于 1.0.0 随旧补丁链整体退役**，不在本包内分发；历史版本可经
+  git 历史查阅（如 tag/commit `cb46ade` 及更早的 0.6.x 提交）。
+- 1.0.0 的 `src/puller.mjs` 为全新 Node 实现（官方 MCP Apps 插件形态，server 单点拉取），
+  继承其合并语义的关键约束（providerId 精确匹配、apiKey 不反向覆盖、读失败中止不重建），
+  不含上述 vendored 代码。为尊重历史 vendored 版本的许可，保留其声明如下：
 
 ```
 MIT License
@@ -33,7 +37,9 @@ SOFTWARE.
 
 ## 2. 设计参考（非代码引用）
 
-- 思考强度滑条的视觉规格参考了 `dsh-reasoning-effort` 项目公开的设计语言
-  （渐变轨道 / 拖尾光斑 / 拖拽增辉 / 最高档呼吸），**代码为本项目自行实现**。
-- 输入框「增强提示词」的交互与提示词要点对齐了 WorkBuddy 的 `input.enhance` 功能，
-  提示词模板为本项目自行撰写。
+- 思考强度滑条（0.6.x 功能⑥，已废弃）的视觉规格曾参考 `dsh-reasoning-effort` 项目公开的
+  设计语言，**代码为本项目自行实现**；该功能已随 1.0.0 裁剪退役，历史实现见 git 历史。
+- 输入框「增强提示词」（现保留功能：`/polish` 命令 + 面板粘贴流）的交互与提示词要点对齐了
+  WorkBuddy 的 `input.enhance` 功能，提示词模板为本项目自行撰写。
+- 1.0.0 插件形态（mcpServers + ui.surfaces + userConfig manifest）同构 showcase 0.4.3 的
+  官方模板（官方插件生态公开示例），协议行为以其公开实现为参照。

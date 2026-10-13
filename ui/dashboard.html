@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zcode-tokenspeed 面板</title>
+<!--
+  ui/dashboard.html —— ui.surfaces id=tps 的侧栏面板（plugin.json resourceUri = ui://zcode-tokenspeed/dashboard.html，
+  由插件 server 的 resources/read 吐出本页，showcase 0.4.3 registerResources 同款机制）。
+
+  约束（方案 §2.5 资源边界）：单页 ≤4 MiB、单次资源读取 ≤8 MiB——原生 HTML/JS 零依赖零框架，
+  本页 ~20KB。页面不直连 db.sqlite，数据一律经插件 server（zcode-toolkit MCP 工具面）。
+
+  与 server 的数据通道——照 showcase 摘录（review/ref/showcase-server-excerpts.md）实现，摘录里没有的
+  API 一律不捏造：
+    §5 沙箱桥 = postMessage transport：页面 → window.parent 发 JSON-RPC 2.0，握手序列
+        ui/initialize（请求，appCapabilities/appInfo/protocolVersion）
+        → hostCapabilities/hostInfo/hostContext（响应）
+        → ui/notifications/initialized（通知）。
+        注：摘录证实 server.mjs 无 contextBridge；桥在沙箱页侧、由页面自带客户端实现——本页因此自带
+        最小 transport（下方 McpBridge 类），不依赖宿主注入任何全局对象。
+    §6 getHostCapabilities = 沙箱页 SDK 客户端实例方法——本页在握手后持有 hostCapabilities，
+      按 §6 观测到的能力键（message/sampling/serverTools/downloadFile）做门控；能力缺失明示不支持。
+    页面→server 工具调用：摘录【未给出】桥 API 形态，但 §6 观测到 hostCapabilities.serverTools
+      能力键——2026-10-13 第二轮接线（防御式，G0-c 装机确认前）：握手后探测宿主是否转发标准 MCP
+      方法（tools/list 探测 → tools/call 执行 / resources/subscribe 订阅）。可用则面板动作直连
+      插件 server，并订阅消费 server 已实现的 ui://zcode-tokenspeed/live/tps.json 周期推送
+      （notifications/resources/updated）；探测无响应/报错即维持指引模式降级，绝不假装成功。
+      接线收敛在 serverCall() 单点（下方），页面其余代码不感知通道形态。
+-->
+<style>
+  :root { --line:#e2e2e2; --fg:#222; --dim:#777; --acc:#0b62c4; --ok:#0a7d33; --warn:#a05a00; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:13px/1.55 system-ui,"Segoe UI","Microsoft YaHei",sans-serif; color:var(--fg); background:#fafafa; }
+  main { padding:10px 12px 24px; }
+  h1 { font-size:15px; margin:0 0 4px; }
+  h2 { font-size:13px; margin:18px 0 6px; padding-bottom:3px; border-bottom:1px solid var(--line); }
+  .sub { color:var(--dim); font-size:12px; margin:0 0 8px; }
+  .badge { display:inline-block; padding:0 7px; border-radius:9px; font-size:11px; vertical-align:1px; }
+  .badge.rt { background:#e2f3e8; color:var(--ok); }
+  .badge.off { background:#f0f0f0; color:var(--dim); }
+  table { border-collapse:collapse; width:100%; margin:6px 0; background:#fff; }
+  th,td { border:1px solid var(--line); padding:3px 7px; text-align:left; font-variant-numeric:tabular-nums; }
+  th { background:#f3f4f6; font-weight:600; white-space:nowrap; }
+  td.num { text-align:right; white-space:nowrap; }
+  input[type=text],input[type=password],select,textarea {
+    width:100%; padding:4px 6px; border:1px solid var(--line); border-radius:4px; font:inherit; background:#fff; }
+  textarea { resize:vertical; min-height:64px; }
+  label { display:block; margin:6px 0 2px; font-size:12px; color:#444; }
+  .row { display:flex; gap:8px; }
+  .row > * { flex:1; min-width:0; }
+  button { padding:4px 14px; border:1px solid var(--acc); background:var(--acc); color:#fff;
+           border-radius:4px; font:inherit; cursor:pointer; margin:6px 6px 0 0; }
+  button.ghost { background:#fff; color:var(--acc); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .hint { color:var(--dim); font-size:12px; margin-top:4px; }
+  .msg { margin-top:6px; padding:6px 8px; border-radius:4px; font-size:12px; white-space:pre-wrap; word-break:break-all; }
+  .msg.ok { background:#e2f3e8; color:#0a4d24; }
+  .msg.err { background:#fdeaea; color:#8f1d1d; }
+  .msg.info { background:#eef3fa; color:#123f73; }
+  .models { max-height:220px; overflow:auto; border:1px solid var(--line); background:#fff; padding:4px 8px; }
+  .models label { display:flex; gap:6px; margin:2px 0; font-size:12px; color:var(--fg); }
+  code { background:#f0f0f0; padding:0 4px; border-radius:3px; font-size:12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>zcode-tokenspeed 面板 <span id="bridgeBadge" class="badge off">桥：探测中…</span></h1>
+  <p class="sub" id="hostLine">数据经插件 server（zcode-toolkit）MCP 工具面获取；本页不直连 db.sqlite。</p>
+
+  <!-- ======================= 区 1：TPS 详表 ======================= -->
+  <h2>TPS 详表 <span id="rtBadge" class="badge rt">实时（2s 内刷新最近完成轮）</span></h2>
+  <p class="sub">
+    实时口径按 G0-a 结论「realtime」：P95=1969ms ≤ 3s——语义是「最近完成轮 ≤2s 可见」（近实时），
+    <b>不是</b> token 级流式数字（105 次轮询 0 观测，不得假装）。
+  </p>
+  <div class="row">
+    <button id="tpsBtn" class="ghost">刷新 TPS</button>
+    <select id="tpsScope" style="flex:0 0 150px">
+      <option value="latest_main" selected>最新主会话（默认）</option>
+      <option value="all">全部会话汇总</option>
+      <option value="current">当前会话（映射待验证）</option>
+    </select>
+  </div>
+  <div id="tpsOut"><div class="msg info">尚未取得数据——点「刷新 TPS」或让模型调用 <code>ztk_tps_query(scope)</code>。</div></div>
+
+  <!-- ======================= 区 2：模型拉取 ======================= -->
+  <h2>模型拉取</h2>
+  <p class="sub">baseURL / API Key / 协议（显式三选，禁止自动探测）→ 拉取 → 勾选 → 确认写入 provider_config.json。</p>
+  <label for="mfPid">providerId（合并精确匹配键；新供应商可用任意稳定 id）</label>
+  <input type="text" id="mfPid" placeholder="例如 my-gateway">
+  <label for="mfBase">baseURL</label>
+  <input type="text" id="mfBase" placeholder="https://gw.example.com/v1">
+  <label for="mfKey">API Key（本面板不落盘；写入时仅当目标供应商原本无 key 才采用）</label>
+  <input type="password" id="mfKey" placeholder="sk-…（可空）">
+  <label for="mfProto">协议</label>
+  <select id="mfProto">
+    <option value="chat-completions">chat-completions（OpenAI 风格）</option>
+    <option value="anthropic-messages">anthropic-messages</option>
+    <option value="responses">responses</option>
+  </select>
+  <button id="mfFetch">拉取模型清单</button>
+  <div id="mfList" class="models" style="display:none"></div>
+  <div class="row" style="margin-top:4px">
+    <button id="mfAll" class="ghost" style="display:none">全选/全不选</button>
+    <button id="mfApply" style="display:none">确认写入</button>
+  </div>
+  <div id="mfOut"><div class="msg info">填好上面三项后点「拉取模型清单」。</div></div>
+
+  <!-- ======================= 区 3：润色 ======================= -->
+  <h2>润色（粘贴 → 润色 → 复制）</h2>
+  <p class="sub">凭据复用 provider_config.json（或插件设置里的 polish_key 覆盖）；结果只返回，绝不写回输入框。</p>
+  <label for="plDraft">草稿</label>
+  <textarea id="plDraft" placeholder="把要发给模型的草稿粘贴到这里…"></textarea>
+  <div class="row" style="margin-top:4px">
+    <input type="text" id="plModel" placeholder="model（可选，providerId/modelId 或裸 modelId）">
+    <input type="text" id="plEffort" placeholder="effort_level（可选）" style="flex:0 0 170px">
+  </div>
+  <button id="plBtn">润色</button>
+  <button id="plCopy" class="ghost" disabled>复制结果</button>
+  <div id="plOut"><div class="msg info">或直接在会话里用 <code>/polish &lt;草稿&gt;</code> 斜杠命令。</div></div>
+
+  <h2>宿主能力（握手观测）</h2>
+  <div id="capOut" class="msg info">等待沙箱桥握手（ui/initialize）…</div>
+</main>
+
+<script>
+'use strict';
+/* ============================================================================
+ * 沙箱桥 —— 照 showcase 摘录 §5 实现（postMessage transport；无 contextBridge）。
+ * 只实现摘录里逐字存在的三步握手；其余请求方法摘录未给出，一律不发。
+ * ==========================================================================*/
+var BRIDGE_PROTOCOL_VERSION = '2026-01-26'; // 摘录 §5 cases.html:26617 起的 E 常量同值
+
+function McpBridge() {
+  this.eventTarget = window.parent;          // 摘录 §5：constructor(X = window.parent, Y)
+  this.pending = new Map();
+  this.nextId = 1;
+  this.hostCapabilities = null;
+  this.hostInfo = null;
+  this.hostContext = null;
+  this.connected = false;
+  var self = this;
+  this.listener = function (ev) {
+    var d = ev && ev.data;
+    if (!d || typeof d !== 'object' || d.jsonrpc !== '2.0') return; // 摘录 §5：非 JSON-RPC 帧直接忽略
+    if (d.id !== undefined && (d.result !== undefined || d.error !== undefined)) {
+      var p = self.pending.get(d.id);
+      if (p) {
+        self.pending.delete(d.id);
+        d.error ? p.reject(new Error(d.error.message || 'bridge error')) : p.resolve(d.result);
+      }
+    }
+    // 宿主→页的服务器推送通知：只按标准 MCP 语义处理我们订阅过的资源更新（notifications/
+    // resources/updated + params.uri），其余通知帧忽略——不捏造语义（server 侧 pollTick 只对
+    // 已订阅 URI 推送该通知，见 src/server.mjs）。
+    if (typeof d.method === 'string' && d.method === 'notifications/resources/updated'
+        && d.params && d.params.uri === TPS_LIVE_URI_PAGE && typeof self.onTpsLiveUpdated === 'function') {
+      self.onTpsLiveUpdated();
+    }
+  };
+}
+McpBridge.prototype.start = function () {
+  window.addEventListener('message', this.listener, false); // 摘录 §5 class j：window.addEventListener('message', …)
+};
+McpBridge.prototype.send = function (msg) {
+  this.eventTarget.postMessage(msg, '*');                    // 摘录 §5：eventTarget.postMessage(X, '*')
+};
+/** JSON-RPC 请求（仅用于 ui/initialize——摘录唯一给出的页面→宿主请求方法）。 */
+McpBridge.prototype.request = function (method, params, timeoutMs) {
+  var self = this;
+  return new Promise(function (resolve, reject) {
+    var id = self.nextId++;
+    self.pending.set(id, { resolve: resolve, reject: reject });
+    self.send({ jsonrpc: '2.0', id: id, method: method, params: params });
+    setTimeout(function () {
+      if (self.pending.has(id)) {
+        self.pending.delete(id);
+        reject(new Error('bridge timeout: ' + method));
+      }
+    }, timeoutMs || 4000);
+  });
+};
+McpBridge.prototype.notify = function (method, params) {
+  this.send({ jsonrpc: '2.0', method: method, params: params });
+};
+/** 三步握手（摘录 §5 cases.html:27030-27040 逐字对齐）：
+ *  ui/initialize（请求）→ hostCapabilities/hostInfo/hostContext（响应）→ ui/notifications/initialized（通知）。 */
+McpBridge.prototype.connect = function () {
+  var self = this;
+  // appCapabilities 形状摘录未展开（§5 原文省略号）——保守发空对象；G0-c 装机实测后按宿主要求补。
+  return this.request('ui/initialize', {
+    appCapabilities: {},
+    appInfo: { name: 'zcode-tokenspeed-dashboard', version: '1.0.0' },
+    protocolVersion: BRIDGE_PROTOCOL_VERSION,
+  }).then(function (res) {
+    self.hostCapabilities = res && res.hostCapabilities || null;
+    self.hostInfo = res && res.hostInfo || null;
+    self.hostContext = res && res.hostContext || null;
+    self.notify('ui/notifications/initialized');
+    self.connected = true;
+    return res;
+  });
+};
+
+/* ============================================================================
+ * 工具调用通道 —— 防御式接线（2026-10-13 第二轮；G0-c 装机确认前的保守实现）
+ * 摘录未给出「页面→server 工具调用」的桥 API，但 §6 观测到 hostCapabilities.serverTools 能力键。
+ * 因此：桥握手后先以标准 MCP 方法名探测（tools/list）——宿主若转发 MCP 方法，serverCall() 即经
+ * 桥直调 tools/call（单点接线）；探测超时/报错则标记通道不可用，一切动作按钮回到指引模式降级，
+ * 绝不假装成功。通道判定只在真实响应/超时上翻转，不在臆测上。
+ * ==========================================================================*/
+var TPS_LIVE_URI_PAGE = 'ui://zcode-tokenspeed/live/tps.json';
+var toolChannel = 'unknown'; // 'unknown' | 'ok' | 'no'（探测/首次调用后翻转）
+
+function setToolChannel(state) {
+  if (toolChannel === state) return;
+  toolChannel = state;
+  showBridgeState(bridge.connected ? 'ok' : 'none');
+}
+
+/** 经沙箱桥发标准 MCP 请求（宿主不转发 → 超时 reject，由调用方降级）。 */
+function bridgeMcp(method, params, timeoutMs) {
+  if (!bridge || !bridge.connected) {
+    return Promise.reject(new Error('bridge not connected'));
+  }
+  return bridge.request(method, params, timeoutMs);
+}
+
+/** 单点接线：页面动作 → 插件 server 工具。失败一律回落指引模式（含真实工具错误文本）。 */
+function serverCall(toolName, args) {
+  return tryBridgeToolCall(toolName, args).then(null, function (err) {
+    var detail = err && err.message ? String(err.message) : '调用未成功';
+    return {
+      ok: false,
+      unavailable: !err || !err.toolError,
+      tool: toolName,
+      args: args,
+      error: detail,
+      guidance:
+        (err && err.toolError
+          ? '工具执行失败：' + detail + '\n'
+          : '宿主沙箱桥未转发 tools/call（探测无响应；G0-c 装机确认转发形态）。\n')
+        + '请把下面的调用转述给会话模型执行：\n'
+        + toolCallHint(toolName, args),
+    };
+  });
+}
+
+function tryBridgeToolCall(toolName, args) {
+  if (toolChannel === 'no') {
+    return Promise.reject(new Error('tool channel unavailable'));
+  }
+  // 未探测成功前用短超时：宿主不转发时最多等 3s 即降级，不卡按钮
+  var timeoutMs = toolChannel === 'ok' ? 20000 : 3000;
+  return bridgeMcp('tools/call', { name: toolName, arguments: args }, timeoutMs).then(
+    function (r) {
+      if (!r || typeof r !== 'object' || !Array.isArray(r.content)) {
+        throw new Error('无法识别的 tools/call 响应形态');
+      }
+      setToolChannel('ok');
+      var text = r.content[0] && typeof r.content[0].text === 'string' ? r.content[0].text : '';
+      if (r.isError) {
+        var e = new Error(text || '工具返回错误');
+        e.toolError = true;
+        throw e;
+      }
+      if (r.structuredContent && r.structuredContent.ok === false && r.structuredContent.error) {
+        var e2 = new Error(
+          (r.structuredContent.error.code || 'ERROR') + ': ' + (r.structuredContent.error.message || ''),
+        );
+        e2.toolError = true;
+        throw e2;
+      }
+      if (r.structuredContent !== undefined && r.structuredContent !== null) {
+        return { ok: true, result: r.structuredContent };
+      }
+      return { ok: true, result: { text: text } };
+    },
+    function (e) {
+      if (toolChannel === 'unknown') setToolChannel('no'); // 超时/拒绝 → 通道判定为不可用
+      throw e;
+    },
+  );
+}
+
+/** 握手后探测 + 订阅：tools/list 探测转发能力；resources/subscribe 订阅 live/tps.json 推送。 */
+function probeToolChannelAndSubscribe() {
+  bridgeMcp('tools/list', {}, 3000).then(
+    function (list) {
+      setToolChannel(list && Array.isArray(list.tools) ? 'ok' : 'no');
+      if (toolChannel !== 'ok') return;
+      // 通道可用 → 订阅 TPS 实时资源（server 侧 pollTick 只对已订阅 URI 推送 updated 通知）
+      bridgeMcp('resources/subscribe', { uri: TPS_LIVE_URI_PAGE }, 3000).then(null, function () {});
+    },
+    function () { setToolChannel('no'); },
+  );
+}
+
+function toolCallHint(toolName, args) {
+  return toolName + '(' + JSON.stringify(args) + ')';
+}
+
+/* ============================================================================
+ * 通用渲染
+ * ==========================================================================*/
+function $(id) { return document.getElementById(id); }
+function setMsg(el, cls, text) {
+  el.innerHTML = '';
+  var d = document.createElement('div');
+  d.className = 'msg ' + cls;
+  d.textContent = text;
+  el.appendChild(d);
+  return d;
+}
+var fmtInt = function (n) {
+  return typeof n === 'number' && isFinite(n) ? n.toLocaleString('en-US') : String(n);
+};
+var fmtTps = function (v) {
+  return typeof v === 'number' && isFinite(v) ? v.toFixed(1) + ' tok/s' : '无流式时间戳';
+};
+
+/* ============================================================================
+ * 区 1：TPS 详表 —— 渲染层消费 tps.TpsSnapshot 契约形状（src/tps.mjs JSDoc，字段名即契约）
+ * ==========================================================================*/
+function renderTpsSnapshot(s) {
+  var out = $('tpsOut');
+  out.innerHTML = '';
+  var head = document.createElement('p');
+  head.className = 'sub';
+  head.textContent =
+    'scope=' + s.scope +
+    (s.sessionIdTail ? '（会话尾号 …' + s.sessionIdTail + '，多窗口时用于察觉统计错位）' : '（未定位会话）');
+  out.appendChild(head);
+
+  var t = s.lastCompletedTurn;
+  var tRows;
+  if (t) {
+    tRows = [
+      ['最近完成轮 ' + t.turnId, fmtTps(t.tokPerSec), t.ttftMs == null ? 'N/A' : t.ttftMs + ' ms',
+       fmtInt(t.inputTokens), fmtInt(t.outputTokens), fmtInt(t.cacheReadTokens), fmtInt(t.computedTotalTokens)],
+    ];
+  } else {
+    tRows = [['（暂无完成轮）', '—', '—', '—', '—', '—', '—']];
+  }
+  out.appendChild(makeTable(
+    ['最近完成轮', 'tok/s', 'TTFT', '输入', '输出', '缓存读', '总 tokens'],
+    tRows));
+
+  var st = s.sessionTotals;
+  out.appendChild(makeTable(
+    ['会话累计', '轮数', '完成', '取消', '输入', '输出', '缓存读'],
+    [[
+      st.turnCount + ' 轮',
+      st.turnCount, st.completedTurnCount, st.cancelledTurnCount,
+      fmtInt(st.inputTokens), fmtInt(st.outputTokens), fmtInt(st.cacheReadTokens),
+    ]]));
+
+  var dist = s.modelDistribution || [];
+  out.appendChild(makeTable(
+    ['模型分布', '请求数'],
+    dist.map(function (d) { return [d.providerId + ' / ' + d.modelId, d.requestCount]; })));
+
+  if (s.degraded) setMsg(out, 'info', '降级说明：' + s.degraded);
+}
+
+function makeTable(headCells, rows) {
+  var tb = document.createElement('table');
+  var tr = document.createElement('tr');
+  headCells.forEach(function (h) {
+    var th = document.createElement('th');
+    th.textContent = h;
+    tr.appendChild(th);
+  });
+  tb.appendChild(tr);
+  rows.forEach(function (r) {
+    var tr2 = document.createElement('tr');
+    r.forEach(function (c, i) {
+      var td = document.createElement('td');
+      td.textContent = String(c);
+      if (i > 0) td.className = 'num';
+      tr2.appendChild(td);
+    });
+    tb.appendChild(tr2);
+  });
+  return tb;
+}
+
+$('tpsBtn').addEventListener('click', function () {
+  var scope = $('tpsScope').value;
+  // 工具通道可用 → r.result 即 ztk_tps_query 结果（TpsSnapshot 形状）；不可用 → 指引文案
+  serverCall('ztk_tps_query', { scope: scope }).then(function (r) {
+    if (r.ok && r.result && r.result.scope !== undefined) renderTpsSnapshot(r.result);
+    else setMsg($('tpsOut'), r.unavailable === false ? 'err' : 'info', r.guidance || '调用未成功。');
+  });
+});
+
+/* ============================================================================
+ * 区 2：模型拉取（ztk_models_fetch → 勾选 → ztk_provider_config_apply）
+ * selected 形状与 src/provider_config_schema.mjs mergeProviderConfig JSDoc 逐字段一致。
+ * ==========================================================================*/
+var fetchedModels = []; // [{modelId, contextWindow?, outputLimit?, efforts?, defaultEffort?}]
+
+function renderModelList() {
+  var box = $('mfList');
+  box.innerHTML = '';
+  fetchedModels.forEach(function (m, i) {
+    var lab = document.createElement('label');
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.dataset.idx = String(i);
+    lab.appendChild(cb);
+    var span = document.createElement('span');
+    var meta = [];
+    if (m.contextWindow) meta.push('ctx ' + fmtInt(m.contextWindow));
+    if (m.outputLimit) meta.push('out ' + fmtInt(m.outputLimit));
+    if (m.efforts) meta.push('档位 ' + m.efforts.join('/'));
+    if (m.defaultEffort) meta.push('默认 ' + m.defaultEffort);
+    span.textContent = m.modelId + (meta.length ? '（' + meta.join('，') + '）' : '');
+    lab.appendChild(span);
+    box.appendChild(lab);
+  });
+  box.style.display = '';
+  $('mfAll').style.display = '';
+  $('mfApply').style.display = '';
+}
+
+$('mfFetch').addEventListener('click', function () {
+  var baseUrl = $('mfBase').value.trim();
+  var apiKey = $('mfKey').value;
+  var protocol = $('mfProto').value;
+  var out = $('mfOut');
+  if (!baseUrl) { setMsg(out, 'err', 'baseURL 必填。'); return; }
+  serverCall('ztk_models_fetch', { base_url: baseUrl, api_key: apiKey, protocol: protocol }).then(function (r) {
+    if (r.ok && r.result && Array.isArray(r.result.models)) {
+      fetchedModels = r.result.models;
+      renderModelList();
+      setMsg(out, 'ok', '拉取到 ' + fetchedModels.length + ' 个模型（已去重保序）。勾选后点「确认写入」。');
+    } else {
+      setMsg(out, 'info', r.guidance || '拉取未成功。');
+    }
+  });
+});
+
+$('mfAll').addEventListener('click', function () {
+  var boxes = $('mfList').querySelectorAll('input[type=checkbox]');
+  var target = !Array.prototype.every.call(boxes, function (b) { return b.checked; });
+  Array.prototype.forEach.call(boxes, function (b) { b.checked = target; });
+});
+
+$('mfApply').addEventListener('click', function () {
+  var out = $('mfOut');
+  var pid = $('mfPid').value.trim();
+  if (!pid) { setMsg(out, 'err', 'providerId 必填（合并的精确匹配键）。'); return; }
+  var chosen = Array.prototype.filter.call(
+    $('mfList').querySelectorAll('input[type=checkbox]'),
+    function (b) { return b.checked; },
+  ).map(function (b) { return fetchedModels[Number(b.dataset.idx)]; });
+  if (chosen.length === 0) { setMsg(out, 'err', '至少勾选一个模型。'); return; }
+  var selected = {
+    providerId: pid,
+    baseUrl: $('mfBase').value.trim(),
+    apiKey: $('mfKey').value || undefined,
+    protocol: $('mfProto').value,
+    models: chosen,
+  };
+  serverCall('ztk_provider_config_apply', { selected: selected }).then(function (r) {
+    if (r.ok && r.result && r.result.written) {
+      var s = r.result.summary;
+      setMsg(out, 'ok',
+        '已写入，若未即时生效请重启会话。新增 ' + s.addedModels.length +
+        '，跳过已存在 ' + s.skippedExisting.length + '，apiKey ' +
+        (s.apiKeyWritten ? '已写入（原无 key）' : '未覆盖（已有 key）') + '。');
+    } else {
+      setMsg(out, 'info', r.guidance || '写入未成功。');
+    }
+  });
+});
+
+/* ============================================================================
+ * 区 3：润色（粘贴 → 润色 → 复制）
+ * ==========================================================================*/
+var polishResultText = null;
+
+$('plBtn').addEventListener('click', function () {
+  var draft = $('plDraft').value;
+  var out = $('plOut');
+  if (!draft.trim()) { setMsg(out, 'err', '草稿为空——先粘贴一段文字。'); return; }
+  var args = { draft: draft };
+  if ($('plModel').value.trim()) args.model = $('plModel').value.trim();
+  if ($('plEffort').value.trim()) args.effort_level = $('plEffort').value.trim();
+  serverCall('ztk_polish', args).then(function (r) {
+    if (r.ok && r.result && typeof r.result.text === 'string') {
+      polishResultText = r.result.text;
+      out.innerHTML = '';
+      var ta = document.createElement('textarea');
+      ta.value = r.result.text;
+      ta.readOnly = true;
+      out.appendChild(ta);
+      var p = document.createElement('p');
+      p.className = 'hint';
+      p.textContent = '模型 ' + r.result.modelId + '，耗时 ' + r.result.elapsedMs + 'ms。请自行复制（无自动写回）。';
+      out.appendChild(p);
+      $('plCopy').disabled = false;
+    } else {
+      polishResultText = null;
+      $('plCopy').disabled = true;
+      setMsg(out, 'info', r.guidance || '润色未成功。');
+    }
+  });
+});
+
+$('plCopy').addEventListener('click', function () {
+  if (polishResultText == null) return;
+  var done = function () { $('plCopy').textContent = '已复制'; setTimeout(function () { $('plCopy').textContent = '复制结果'; }, 1200); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(polishResultText).then(done, function () { fallbackCopy(); });
+  } else fallbackCopy();
+  function fallbackCopy() {
+    var ta = document.createElement('textarea');
+    ta.value = polishResultText;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { /* 保底失败：用户手动全选复制 */ }
+    document.body.removeChild(ta);
+  }
+});
+
+/* ============================================================================
+ * 桥握手 + 能力门控（照 showcase 用法；能力缺失明示不支持）
+ * ==========================================================================*/
+var bridge = new McpBridge();
+bridge.start();
+var probeTimer = null;
+
+// 订阅推送回调：server 对已订阅的 live/tps.json 推 notifications/resources/updated → 静默重拉渲染
+// （失败不打扰——指引模式下订阅不成立、本回调不会被触发）
+bridge.onTpsLiveUpdated = function () {
+  var scopeEl = $('tpsScope');
+  serverCall('ztk_tps_query', { scope: scopeEl ? scopeEl.value : 'latest_main' }).then(function (r) {
+    if (r.ok && r.result && r.result.scope !== undefined) renderTpsSnapshot(r.result);
+  });
+};
+
+function showBridgeState(state, capsText) {
+  var b = $('bridgeBadge');
+  if (state === 'ok') {
+    b.className = 'badge rt';
+    b.textContent = toolChannel === 'ok'
+      ? '桥：已连接（工具通道可用）'
+      : toolChannel === 'no'
+        ? '桥：已连接（指引模式）'
+        : '桥：已连接（工具通道探测中…）';
+  } else if (state === 'none') {
+    b.className = 'badge off';
+    b.textContent = '桥：无（指引模式）';
+  } else {
+    b.className = 'badge off';
+    b.textContent = '桥：' + state;
+  }
+  if (capsText) $('capOut').textContent = capsText;
+}
+
+bridge.connect().then(function () {
+  clearTimeout(probeTimer);
+  // §6 观测到的能力键：message / sampling / serverTools / downloadFile——逐一明示，缺失即「不支持」
+  var caps = bridge.hostCapabilities || {};
+  var keys = ['message', 'sampling', 'serverTools', 'downloadFile'];
+  var lines = keys.map(function (k) {
+    return (caps[k] ? '✓' : '✗（不支持）') + ' ' + k;
+  });
+  if (bridge.hostInfo && bridge.hostInfo.name) lines.unshift('宿主：' + bridge.hostInfo.name +
+    (bridge.hostInfo.version ? ' ' + bridge.hostInfo.version : ''));
+  lines.push('（能力键清单来自 showcase 摘录 §6 观测；未知键原样展示：' +
+    Object.keys(caps).join(', ') + '）');
+  showBridgeState('ok', lines.join('\n'));
+  // 桥就绪 ≠ 有工具调用通道：探测宿主是否转发标准 MCP 方法（tools/list），
+  // 可用则订阅 live/tps.json（server pollTick 对已订阅 URI 推送 resources/updated → 自动刷新 TPS 详表）
+  probeToolChannelAndSubscribe();
+}, function (err) {
+  clearTimeout(probeTimer);
+  showBridgeState('none',
+    '未检测到宿主沙箱桥（ui/initialize 无响应：' + (err && err.message ? err.message : err) + '）。\n' +
+    '本面板以指引模式运行：三个功能区照常可用作输入/核对，动作执行请转述给会话模型——\n' +
+    '· TPS：ztk_tps_query(scope)\n' +
+    '· 模型拉取：ztk_models_fetch(base_url, api_key, protocol) → 勾选 → ztk_provider_config_apply(selected)\n' +
+    '· 润色：ztk_polish(draft, model?, effort_level?) 或 /polish <草稿>');
+});
+
+// 直接以 file:// 打开（无父窗口回环）时立即结束「探测中」状态
+probeTimer = setTimeout(function () {
+  if (!bridge.connected) showBridgeState('none', '沙箱桥探测超时——按指引模式运行（同上）。');
+}, 5000);
+</script>
+</body>
+</html>

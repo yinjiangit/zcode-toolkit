@@ -8,78 +8,43 @@ on:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # 主流水线：直接调用 autopilot.py，一次跑完 env -> deps -> build -> test
-  # CI 环境不注入 app.asar（--no-deploy），部署步骤由本机看护脚本负责
+  # v2 重构后（方案 §4：全 Node ESM / node:test）：构建 = src/→dist/ 纯拷贝字节比对，
+  # 回归 = node --test 全仓。零 Python 运行时（旧 autopilot/py_compile 步骤已随 0.6.x 退役）。
+  # 真实安装冒烟（migrate.test.mjs 尾部）默认关闭，仅本地设 ZTK_SMOKE_REAL=1 才启用。
   # ---------------------------------------------------------------------------
-  pipeline:
-    name: autopilot (${{ matrix.os }} / py${{ matrix.python-version }})
+  test:
+    name: node:test (${{ matrix.os }} / node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # README 声明「Python >= 3.10」，用 3.10 兜底，防止误用更高版本才有的 API
-          - os: ubuntu-latest
-            python-version: "3.10"
-          - os: ubuntu-latest
-            python-version: "3.12"
-          - os: ubuntu-latest
-            python-version: "3.13"
-          - os: windows-latest
-            python-version: "3.12"
-          - os: macos-latest
-            python-version: "3.12"
+        # README/方案前置：node ≥ 22.5（node:sqlite）——22 下限 + 最新版双档
+        os: [ubuntu-latest, windows-latest]
+        node-version: ["22", "24"]
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: ${{ matrix.node-version }}
 
-      # 全自动流水线：依赖自检 -> 构建检查 -> 回归测试，产出机器可读报告
-      - name: 全自动流水线（autopilot）
-        if: hashFiles('autopilot.py') != ''
-        run: python autopilot.py --no-deploy --unattended --report ci-report.md --log logs/ci.log
+      - name: 构建（src/ → dist/ 发布拷贝 + 逐文件字节比对）
+        run: node scripts/build.mjs
 
-      # 兼容旧布局：若仓库里还没有 autopilot.py，退回逐项语法检查
-      - name: 语法检查（Python，回退路径）
-        if: hashFiles('autopilot.py') == ''
+      - name: 回归测试（node --test 全仓）
         shell: bash
         run: |
-          set -e
-          # 目录名兼容两种仓库布局：扁平 scripts/ 与插件 skills/zcode-tokenspeed/scripts/
-          for d in scripts skills/zcode-tokenspeed/scripts; do
-            [ -d "$d" ] || continue
-            python -m py_compile "$d"/*.py
-          done
+          set -euo pipefail
+          # `node --test test/`（目录位置参数）在部分 node/win32 组合被当作模块入口报 MODULE_NOT_FOUND，
+          # 故用 glob 形式（node ≥22 原生支持 --test glob）；与本地 `node --test` 等价。
+          node --test "test/*.test.mjs" 2>&1 | tee test-output.txt
 
-      - name: 语法检查（注入脚本，回退路径）
-        if: hashFiles('autopilot.py') == ''
-        shell: bash
-        run: |
-          set -e
-          for d in scripts skills/zcode-tokenspeed/scripts; do
-            [ -d "$d" ] || continue
-            for f in "$d"/*.js; do node --check "$f"; done
-          done
-
-      - name: 回归测试（回退路径）
-        if: hashFiles('autopilot.py') == ''
-        run: python -m unittest discover -s tests -v
-
-      # 无论成功失败都留下报告与日志，便于定位偶发问题
-      - name: 上传流水线报告
+      # 无论成功失败都留测试输出，便于定位偶发问题
+      - name: 上传测试输出
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-report-${{ matrix.os }}-py${{ matrix.python-version }}
-          path: |
-            ci-report.md
-            logs/*.log
-            logs/*.jsonl
+          name: test-output-${{ matrix.os }}-node${{ matrix.node-version }}
+          path: test-output.txt
           if-no-files-found: ignore
           retention-days: 14

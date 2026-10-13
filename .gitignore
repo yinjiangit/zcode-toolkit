@@ -47,6 +47,9 @@ apply_after_exit.log
 .box-agent-scratch/
 NVIDIA Corporation/
 
+# node:test 运行时临时产物（fixture 拷贝 / 假服务器产物）
+test/.tmp/
+
 # 本地视觉验收夹具与截图（临时验证产物，不入库）
 _smoke/
 .playwright-mcp/

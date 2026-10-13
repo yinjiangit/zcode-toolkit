@@ -1,29 +1,29 @@
 {
   "name": "zcode-toolkit",
-  "description": "ZCode 桌面客户端一站式原生增强套件（zcode-tokenspeed）：TPS 实时状态栏、思考强度滑条、多模型提示词润色、用量去截断与升级无感自愈。零依赖、幂等注入、安全可还原。",
+  "description": "zcode-tokenspeed 1.0.0：官方 MCP Apps 插件形态——TPS 监控（常驻 banner+侧栏面板）、提示词润色（/polish）、模型拉取写入 provider_config.json。零 asar 注入、零 Python、node ≥22.5。",
   "plugins": [
     {
       "name": "zcode-tokenspeed",
       "source": "./",
-      "version": "0.6.19",
+      "version": "1.0.0",
       "icon": "https://raw.githubusercontent.com/c80361619/zcode-toolkit/main/assets/icon.png",
-      "description": "ZCode 桌面客户端全方位原生体验增强套件：TPS 实时状态栏、思考强度悬浮滑条、提示词多模型智能润色、用量图表去截断、模型浮窗加宽与设置页模型拉取。内置客户端升级自动感知与无感自愈看护，全量幂等、安全可还原，支持按需逐项开关。",
-      "displayName": "ZCode Patcher",
+      "description": "ZCode 官方 MCP Apps 插件：① TPS 监控——常驻 banner + 侧栏面板详表（最近完成轮 tok/s/TTFT/token 与会话累计，db.sqlite 只读轮询）② 提示词润色——/polish 命令与面板粘贴流，凭据复用 provider_config.json ③ 模型拉取——面板确认流合并写入 provider_config.json（providerId 精确匹配、key 不反覆盖、先备份再原子写）。零注入、零管理员权限、零 Python（node ≥22.5）。",
+      "displayName": "zcode-tokenspeed",
       "displayName_i18n": {
-        "zh-CN": "ZCode 原生体验增强"
+        "zh-CN": "zcode-tokenspeed（TPS 监控 / 润色 / 模型拉取）"
       },
       "description_i18n": {
-        "zh-CN": "为 ZCode 桌面客户端提供全方位原生体验增强：输入框常驻 TPS 指标条、思考强度悬浮滑条、智能提示词增强（右键自选润色模型）、用量图表全量展示与窗口加宽。内置客户端升级自动感知与无感自愈看护，支持在插件详情页逐项开关，全量幂等且随时可精确还原。"
+        "zh-CN": "官方 MCP Apps 插件形态，只保留三项功能：① TPS 监控（常驻 banner + 侧栏面板详表，最近完成轮 tok/s / TTFT / token 与会话累计、模型分布）② 提示词润色（/polish 命令 + 面板粘贴→润色→复制流）③ 模型拉取（面板确认流：协议显式三选 → 拉取去重 → 勾选合并写入 provider_config.json）。零 asar 注入、零写安装目录、零 Python；需系统 node ≥ 22.5。0.6.x 旧补丁链已废弃，存量用户请先跑 migrate 清退再升级。"
       },
       "category": "developer-tools",
       "tags": [
         "zcode",
-        "patch",
-        "enhancement",
-        "reasoning-effort",
+        "mcp",
+        "mcp-apps",
         "tps",
+        "monitoring",
         "prompt-engineering",
-        "self-healing",
+        "model-management",
         "productivity"
       ]
     }

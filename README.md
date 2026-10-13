@@ -1,206 +1,156 @@
-# zcode-tokenspeed · ZCode 客户端一站式原生增强套件
+# zcode-tokenspeed · ZCode 官方 MCP Apps 插件（TPS 监控 / 提示词润色 / 模型拉取）
 
 <p align="left">
-  <a href="https://github.com/c80361619/zcode-toolkit/releases"><img src="https://img.shields.io/badge/version-0.6.18-blue.svg?style=flat-square" alt="Version"></a>
-  <img src="https://img.shields.io/badge/python-3.10+-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/dependencies-0%20(std%20only)-success.svg?style=flat-square" alt="Dependencies">
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg?style=flat-square" alt="Platform">
+  <a href="https://github.com/c80361619/zcode-toolkit/releases"><img src="https://img.shields.io/badge/version-1.0.0-blue.svg?style=flat-square" alt="Version"></a>
+  <img src="https://img.shields.io/badge/node-%E2%89%A522.5-339933.svg?style=flat-square&logo=node.js&logoColor=white" alt="Node ≥22.5">
+  <img src="https://img.shields.io/badge/python-0%20(%E4%B8%8D%E5%86%8D%E9%9C%80%E8%A6%81)-success.svg?style=flat-square" alt="Zero Python">
+  <img src="https://img.shields.io/badge/dependencies-0%20(node%20built--in%20only)-success.svg?style=flat-square" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=flat-square" alt="License"></a>
 </p>
 
-为 ZCode 桌面客户端补齐极致原生体验与生产力增强：
-- 📊 **实时 TPS 与性能状态栏**：首 Token 延迟、tok/s 生成速度、Token 统计与会话命中率常驻展示。
-- 🎚️ **思考强度悬浮滑条**：免去繁琐配置，直接在界面流畅拖拽调节 Reasoning Effort，原生即时生效。
-- ✨ **提示词智能增强**：输入框旁一键重写润色草稿；**右键自由选择**润色所用模型，支持一键恢复。
-- 📈 **用量图表全量展开**：破除官方 Top 5/6 截断限制，全量展示所有模型的调用趋势与占比。
-- 🔍 **模型选择浮窗加宽**：选择框 192px 扩大至 320px，长模型名完整展示不再被省略号截断。
-- ⚡ **一键模型同步**：设置页一键获取供应商 `/models` 模型列表，勾选即刻自动建条目并写入。
-- 🛡️ **无感自愈看护（0.6.11 新特性）**：自动感知客户端与插件升级，后台单例看护静默守护，**彻底解决“客户端一升级补丁就失效”！**
+1.0.0 是**破坏性变更**：旧 0.6.x 的 asar 补丁链（思考强度滑条、用量图表去截断、模型弹窗加宽、
+自愈看护、Python 工具链）已全部废弃删除。新形态是**一个官方 MCP Apps 插件**（manifest 同构
+showcase 0.4.3：`mcpServers` node 进程 + `ui.surfaces` 侧栏面板 + `userConfig` + hooks）——
+**零 asar 注入、零写入 ZCode 安装目录、零管理员权限、零 Python**，全部资产在 `~/.zcode` 用户目录。
 
-> **纯 Python 标准库驱动**：零第三方依赖、免编译；改动仅作用于**本地客户端文件**；  
-> 全量操作严格幂等，支持状态核查与逐项/全量精确还原。
->
-> ⚠️ **声明**：非官方开源套件，与 ZCode 官方团队无关联。第三方声明见 [NOTICE.md](NOTICE.md)。  
-> （仓库名 `zcode-toolkit` ≠ 插件名 **`zcode-tokenspeed`**，二者保持独立设计以保障配置兼容性）。
+> ⚠️ **声明**：非官方开源插件，与 ZCode 官方团队无关联。第三方声明见 [NOTICE.md](NOTICE.md)。
+> （仓库名 `zcode-toolkit` ≠ 插件名 **`zcode-tokenspeed`**——市场内原位升级按插件名识别。）
 
 ---
 
-## ⚡ 三分钟极速上手（推荐，全程零命令）
+## 三项功能
 
-适合所有使用 ZCode 桌面端的用户，安装过程**完全无需打开命令行**：
+| 功能 | 形态 | 说明 |
+|:---|:---|:---|
+| 📊 **TPS 监控** | **常驻 banner + 侧栏面板详表** | 最近完成轮 tok/s / TTFT / 输入输出缓存读 + 会话累计 + 模型分布。数据源 `~/.zcode/cli/db/db.sqlite` **只读轮询**（G0-a 实测：完成轮 ≤2s 可见，P95=1969ms；非 token 级流式） |
+| ✨ **提示词润色** | **`/polish` 斜杠命令 + 面板「粘贴 → 润色 → 复制」流** | 走 `provider_config.json` 凭据外呼模型（可在插件设置用 `polish_key` / `polish_base_url` 覆盖）；结果只返回，**绝不写回输入框** |
+| ⚡ **模型拉取** | **侧栏面板确认流** | 填 baseURL / API Key / 协议（显式三选一）→ `ztk_models_fetch` 拉取去重 → 勾选 → `ztk_provider_config_apply` 合并写入 `~/.zcode/v2/provider_config.json`（providerId 精确匹配、apiKey 绝不反向覆盖、先备份再原子写、并发有跨进程锁保护） |
 
-| 步骤 | 操作说明 |
-|:---:|---|
-| **1. 环境确认** | 确认电脑已安装 **Python 3.10+**（系统自带或环境变量已配置）及 **ZCode 客户端**（实测支持 3.11.2 ~ 3.14.5） |
-| **2. 添加市场** | 打开 ZCode **设置 → 插件 → 右上角「创建」→「添加插件市场」**，来源填：<br>`c80361619/zcode-toolkit` |
-| **3. 安装插件** | 在「个人」分段找到 **ZCode 原生体验增强**（`ZCode Patcher`），点 **安装**（装好默认启用） |
-| **4. 自动激活** | **完全退出并重启 ZCode**（托盘右键退出），在新会话中发任意一条消息，后台看护进程将自动完成注入并在下次启动后展现全部增强功能！ |
+三项功能也都可直接对会话模型说：调用 `ztk_tps_query` / `ztk_polish` /
+`ztk_models_fetch → ztk_provider_config_apply`；另有 `ztk_doctor_status`（体检）与
+`ztk_migrate`（迁移预演）两个工具。
 
-> 💡 **全自动开箱即用**：插件清单内所有功能默认全开，无需打开配置页。如需关闭某项，在插件配置页拨成关并保存即可。
+### 侧栏面板：工具通道自动探测（可用直连，否则指引模式）
 
----
+侧栏面板在桥握手后会**自动探测**宿主沙箱是否转发标准 MCP 方法（`tools/list`）：转发则三个功能区
+（TPS 刷新、模型拉取、润色）的动作按钮**直连插件 server 执行**，并订阅
+`ui://zcode-tokenspeed/live/tps.json` 周期推送自动刷新 TPS 详表（面板徽标显示「工具通道可用」）；
+不转发则自动回落**指引模式**——按钮提示你把对应的 MCP 工具调用转述给会话模型执行（徽标显示
+「指引模式」），绝不假装成功。真实宿主的转发行为待装机确认（见
+[docs/g0-poc.md](docs/g0-poc.md)）；无论通道形态如何，三功能本体经 MCP 工具与 `/polish` 命令始终可用。
 
-## 🧩 核心功能矩阵
+## 前置要求
 
-| 特性 | 功能名称 | 核心效果 | 改动范围 |
-|:---:|:---|:---|:---|
-| 🛡️ | **升级自动自愈** | 动态监控客户端与插件版本，升级后自动感知并调度看护静默修复 | 状态监控器 |
-| 📊 | **实时 TPS 状态栏** | 输入框常驻：本轮指标（首 token / tok/s / out）+ 会话累计，右键自由切换位置 | `app.asar` 注入脚本 |
-| 🎚️ | **思考强度滑条** | 工具栏「思考 · 档名」入口，悬浮拖拽条吸附微调，主题自适应，原生链路即时生效 | `app.asar` 注入脚本 |
-| ✨ | **提示词增强润色** | 输入框旁「增强提示词」按钮，右键支持按供应商自选润色模型，持久化且免重启 | `app.asar` 注入脚本 + IPC |
-| 📈 | **用量图表去截断** | 「设置 → 用量」趋势图与饼图不再被 Top 5 / Top 6 截断，全量展示所有模型 | `app.asar` 渲染层 |
-| 🔍 | **模型弹窗加宽** | 模型下拉列表宽度由 192px 扩展至 320px，超长模型名完整展示 | `app.asar` 主 bundle |
-| ⚡ | **设置页模型拉取** | 设置页新增「⚡ 自动拉取模型」按钮，自动从供应商同步可用模型并批量写入 | `app.asar` 注入脚本 + IPC |
-| 🧠 | **思考档位原生配置** | 为各模型配置 `provider_config.json` 档位（3.14+ 原生 optionSpecs，无需内核改动） | 用户配置 JSON |
-| ⚙️ | **思考内核补丁（旧版）** | ≤3.11 旧版内核专用兜底方案（3.14+ 自动识别并跳过，安全无侵入） | `zcode.cjs` |
+- **Node ≥ 22.5**（含 `node:sqlite`；开发机实测 v24.14.1）——`mcpServers.command=node` 与
+  SessionStart hook（doctor 哨兵）共用这一依赖。**不再需要 Python。**
+- ZCode 桌面客户端（TPS 数据源与迁移链路在 win32 / 客户端 3.15.2 实测）。
 
 ---
 
-## 🛠️ 故障排查与一键自愈
+## 安装（新用户，两条路任选其一）
 
-> 💡 **0.6.11 自愈机制**：客户端升级会覆盖官方原版文件导致补丁失效。本插件在检测到升级后会自动重新排期看护，**通常只需在会话中收到提示后，完全退出并重启一次 ZCode 即可自动恢复！**
+已证通道是**桌面客户端插件 UI**（本机实测无 `zcode` CLI，命令行安装形态未经证实，不在此承诺）。
 
-若遇到特殊情况（如杀毒软件拦截、网络断开等）导致功能未生效，请按以下方式排查与一键修复：
+### 路 A · 本地测试市场（开发/试用）
 
-### 方案 A：客户端内一键修复（推荐，无需打开终端）
-在 ZCode 任意对话窗口直接输入内置斜杠命令，AI 助手将自动帮您检测或打补丁：
-- 输入 `/zcode-patch-doctor`：一键诊断健康状态与卡点；
-- 输入 `/zcode-patch-apply`：一键自动重新应用所有增强补丁。
+适合先用本地源码装一次看效果。机制摘自官方 plugin-creator 文档（完整归档见
+[docs/g0-poc.md](docs/g0-poc.md) 环境勘察节）：**注册市场 / 安装 / 更新全部由你在 ZCode UI 手动完成**。
 
-### 方案 B：全电脑通用单行自愈命令（适配所有电脑，任何路径直接粘贴）
-无论您是否克隆过本仓库，也不管您在哪个路径打开终端，**直接复制并运行以下命令**（脚本会自动在系统插件缓存中搜寻并执行自愈，纠正启用状态并自动补齐所有补丁）：
+1. `git clone` 本仓库到任意目录（或直接用本地工作副本）。**市场根目录 = 仓库根**——
+   `marketplace.json` 在仓库根，插件 entry 的 `source` 为 `"./"`，插件 manifest 在
+   `.zcode-plugin/plugin.json`（目录名与 manifest `name` 一致性由仓库布局保证）。
+2. 打开 ZCode **插件市场（Plugin Marketplace）→ 添加（Add）→ 添加插件市场（Add Plugin Marketplace）**，
+   粘贴/选择**仓库根目录**（含 `marketplace.json` 的目录；不是 `.zcode-plugin` 子目录），点**添加**。
+   桌面本地用户也可直接选目录。
+3. 进入**个人（Personal）**，找到市场 `zcode-toolkit` 下的 **zcode-tokenspeed**，
+   核对名称/描述/版本（1.0.0）后点**安装（Install）**。装好默认启用，也可在
+   **设置 → 插件（Settings → Plugins）** 管理。
+4. **更新**：源码更新（`git pull` + 版本号递增 + `marketplace.json` entry 同步）后——
+   市场页齿轮 → **市场源（Marketplace Sources）** → 找到该本地市场 → **刷新该市场**（复用既有市场源，
+   不要重复添加）→ 回**个人**，打开插件详情，出现新版本时点**更新（Update）**。
+   注意：**源码编辑不是热加载**——刷新只更新目录，已安装副本必须再执行 Update。
+5. 安装后**新建任务**发一条小验收提示（如让模型调用 `ztk_tps_query`）确认能力可用。
 
-```powershell
-# Windows (CMD 或 PowerShell 任意路径直接运行)
-python -c "import pathlib,subprocess,sys; p=next(pathlib.Path.home().glob('.zcode/**/doctor.py'),None); subprocess.run([sys.executable,str(p),'--fix']) if p else print('未找到已安装的 ZCode 插件，请先在客户端内安装')"
-```
+### 路 B · GitHub 市场（正式分发）
+
+1. 打开 ZCode **设置 → 插件 → 右上角「创建」→「添加插件市场」**（或插件市场页的添加入口），
+   来源填：`c80361619/zcode-toolkit`
+2. 在插件列表找到 **zcode-tokenspeed**（1.0.0），点**安装**（装好默认启用）
+3. 新会话首启时 SessionStart 的 doctor 哨兵会自动体检（结果落 `~/.zcode/zcode-toolkit/doctor.json`；
+   也可随时让模型调用 `ztk_doctor_status`）
+
+> 【G0-c 回填位】两条路的 UI 确切路径与安装/升级/卸载操作原文，待装机实测后回填
+> （0.6.16 当年即经桌面客户端插件 UI 装成，通道本身已证；逐步操作序列见
+> [docs/g0-poc.md](docs/g0-poc.md) G0-c 节）。
+
+---
+
+## 存量用户迁移指引（0.6.x → 1.0.0，**先 migrate、后升级**）
+
+旧版直接在 ZCode 安装目录打 asar 补丁（残留约 3.2GB 备份垃圾，且旧看护进程可能在升级时重放补丁）。
+**顺序原因一句话**：市场内原位升级后旧插件缓存目录是否保留未经验证、补丁链可能半死不活——
+先把补丁链与垃圾彻底清退（migrate 的还原引擎已 vendor 在新仓库 `legacy/zcode_patcher.py`，
+不依赖旧缓存存活），再切换到新插件。
 
 ```bash
-# macOS / Linux (任意终端直接运行)
-python3 -c "import pathlib,subprocess,sys; p=next(pathlib.Path.home().glob('.zcode/**/doctor.py'),None); subprocess.run([sys.executable,str(p),'--fix']) if p else print('未找到已安装的 ZCode 插件，请先在客户端内安装')"
+git clone https://github.com/c80361619/zcode-toolkit.git   # 或直接进入已有仓库（main 分支）
+cd zcode-toolkit
+
+# ① 只读盘点（绝不改动任何文件；py 可用时自动预演六旗标还原）
+node dist/migrate.mjs --check
+
+# ② 预演「若加 --confirm 将执行什么」（仍不执行）
+node dist/migrate.mjs --dry-run
+
+# ③ 完全退出 ZCode（托盘右键退出）后，手动执行清退（唯一破坏性模式，需你显式确认）
+#    存在 provider_config.json.reasoning-bak 且与现行配置有差异时，另需 --ack-reasoning-bak
+node dist/migrate.mjs --confirm
 ```
 
----
+migrate 会：终止旧看护进程并删除 `_watchdog.want` 队列 → 备份 `provider_config.json` →
+按六旗标还原 app.asar（**不用 `--all`**，绕开会回滚供应商配置的 reasoning 分支）→ 校验
+sha256 回到官方原始字节 → 精确清单清退 3.2GB 垃圾 → 列出（不删）v2 根残留。
 
-## 🎯 常用特性使用技巧
+全绿（`switchReady=true`）后：**卸载旧插件 → 安装/升级 1.0.0 → 首启确认 doctor 全绿**。
+py 不可用或客户端版本失配时，migrate 会指引走兜底方案：ZCode 重装/升级一次即可全量覆盖
+`resources\app.asar` 为官方原字节。
 
-### 1. 增强提示词（右键自由指定模型）
-- **左键点击**：根据当前选定模型一键润色重写草稿，支持一键「恢复原文」；
-- **右键点击**：弹出供应商模型列表，可自由指定轻量、快速或专用模型（如 Claude 3.5 Haiku、GPT-4o-mini）专门用于润色，选择后**持久化保存且立即生效**。
+## ZCode 升级后：零维护
 
-### 2. 思考强度悬浮滑条
-- 点击输入框下方工具栏的「思考 · 档位」文字，会弹出平滑拖动条；
-- 拖拽至所需强度（关闭 / 低 / 中 / 高）释放即刻生效，原生联动客户端配置。
+- 1.0.0 **从不写 ZCode 安装目录**（`C:\…\Programs\ZCode\`），全部资产在 `~/.zcode` 用户目录——
+  ZCode 自身升级只覆盖安装清单内文件，**用户目录内插件资产零触碰，无需任何重放/恢复动作**。
+- 唯一动作是下一次 SessionStart 的 doctor 哨兵自动体检（db schema 版本 / provider_config 可写性 /
+  能力协商 / 插件版本漂移 / 旧补丁残留），异常 → banner 降级提示，不崩、不静默。
+- 边界如实说明：宿主若改变插件装载机制/缓存布局，不受本插件控制——届时唯一信号是
+  banner/面板消失（doctor 也不会运行），处理方式是重装插件或等适配版本。
+- 插件自身升级走市场机制（见安装节），与 ZCode 宿主升级完全解耦。
 
----
+## 故障排查
 
-## 🔄 卸载与还原
+- **看不到 banner/面板**：让模型调用 `ztk_doctor_status`（五项哨兵见上），按报告指引处理。
+- **doctor 报「检测到旧补丁残留」**：按上方迁移指引先跑 `node dist/migrate.mjs --check`。
+- **模型拉取写入后未即时生效**：重启会话（热加载结论待装机实测，面板/工具文案已按谨慎口径标注）。
 
-若您想完全停用增强补丁并恢复官方纯净状态：
-1. 打开终端运行全域还原命令：
-   ```powershell
-   python -c "import pathlib,subprocess,sys; p=next(pathlib.Path.home().glob('.zcode/**/zcode_patcher.py'),None); subprocess.run([sys.executable,str(p),'--all','--revert']) if p else None"
-   ```
-2. 在 ZCode **设置 → 插件 → 管理已安装** 中，点击本插件的「卸载」即可。
+## 卸载
 
----
+ZCode 插件界面卸载即可——安装目录从未被 1.0.0 写过，用户目录内插件资产随官方机制移除。
+（若你是从 0.6.x 升级而来且从未跑 migrate：先按迁移指引清退旧补丁，再卸载。）
 
-## 📚 进阶文档与技术档案
+## 开发
 
-<details>
-<summary><b>🛠️ 开发者指南：本地离线安装、纯 CLI 与自动化构建</b></summary>
-
-### 方式 B：本地源码离线安装
-适合内网、GitHub 网络受限或本地二次开发的场景：
 ```bash
-git clone https://github.com/c80361619/zcode-toolkit.git
-```
-在 ZCode「设置 → 插件 → 创建 → 添加插件市场」中选择该仓库目录，校验通过后即可安装。
-
-### 方式 C：纯命令行模式（不装插件）
-克隆仓库后，直接通过主脚本打补丁：
-```bash
-# 只读体检（自动探测 ZCode 安装位置）
-python skills/zcode-tokenspeed/scripts/zcode_patcher.py --all --check
-
-# 先完全退出 ZCode，然后一次性注入全部补丁
-python skills/zcode-tokenspeed/scripts/zcode_patcher.py --all
-
-# 单独还原某项（例如还原 TPS 状态栏）
-python skills/zcode-tokenspeed/scripts/zcode_patcher.py --tps-footer --revert
+node scripts/build.mjs        # 发布拷贝：src/ → dist/ 纯拷贝 + 逐文件字节比对（无构建器）
+node --test "test/*.test.mjs" # node:test 全仓回归（真实安装冒烟默认关闭，设 ZTK_SMOKE_REAL=1 才启用）
 ```
 
-### 方式 D：一键引导脚本（开发者专用）
-```bash
-python bootstrap.py            # macOS/Linux 使用 python3 bootstrap.py
-```
-自动执行平台环境校验、标准库检查、语法构建与 280+ 项回归测试。
+全 Node ESM、零 npm 运行时依赖。架构与目录树见仓库源码各模块头部注释；阶段 0 验证记录见
+[docs/g0-poc.md](docs/g0-poc.md)；运行时写目标的逐文件允许清单（唯一写者契约）见
+[docs/state-write-allowlist.md](docs/state-write-allowlist.md)。
 
-### 方式 E：全自动流水线
-```bash
-./run.sh                       # Linux / macOS
-run.cmd                        # Windows
-```
+## 历史版本（0.6.x）
 
-</details>
-
-<details>
-<summary><b>🔬 自动注入机制与 ASAR 安全设计</b></summary>
-
-### 1. 为什么补丁需要退出后写入？
-`zcode_patcher.py` 具有严格的运行预检机制：只要系统中存在 `ZCode.exe` 进程便拒绝写盘。这是因为客户端运行时 `app.asar` 文件会被底层文件系统锁定，强行改写会导致文件损坏。因此本套件设计了看护单例（Watchdog）：在会话中记录期望状态，待客户端完全退出的一瞬间原子完成写入并自动重新拉起。
-
-### 2. ASAR 重打包安全性
-- **全域 Integrity 校验**：重打包时对所有 entry 的 SHA-256 与 offset 排布进行全局自洽检验，杜绝错位加载失败；
-- **跨进程互斥锁**：写入全程施加文件锁，避免多进程并发争抢冲突。
-
-</details>
-
-<details>
-<summary><b>📜 历史版本审计与故障排查记录</b></summary>
-
-#### 0.6.16（解决思考档位关闭导致退出无限重启死循环，Issue #5）
-- **语义修正为“不托管”**：3.14+ 思考档位配置目标为客户端自带的 `provider_config.json`；当开关关闭时语义明确为“停止托管与同步”，插件不再主动写入，且绝不主动还原该文件，彻底切断“退出还原 → 客户端重启写回 → 再次检测冲突 → 再次看护还原”的无限死循环；
-- **看护空任务守卫**：`apply_after_exit.py` 严格过滤 `reasoning_config=off` 任务；若最终无待执行补丁任务，看护直接安全退出，杜绝空任务挂起等待与退出自动重启 ZCode。
-- **全平台兼容吸收**：完整吸纳 PR #4 对 macOS 看护链路的跨平台支持与 crashpad 僵尸进程排除。
-
-#### 0.6.15（彻底根治会话生成中润色模型漂移与失败问题）
-- **会话粘性记忆与侧边栏隔离**：`zcode-enhance-prompt.js` 引入 `lastKnownModel` 会话粘性记忆，流式生成中当原生工具栏处于禁用/重绘瞬态时无缝沿用该会话最新选中的模型；全局搜索强制排除侧边栏，杜绝抓取辅助对话的模型；
-- **跨脚本实时事件信源联动**：`zcode-tps.js` 捕获 ServicePort 事件流的底层实时 `ev.modelId` 并暴露全局，形成模型定位双保险；
-- **主进程坚守当前供应商**：`zcode_patcher.py` 优化解析引擎，中转站与自定义模型只要所属供应商有效即坚守在该供应商发请求，彻底杜绝越界 Fallback 到系统其他无关供应商导致 400 失败的问题。
-
-#### 0.6.14（TPS 状态栏优化：去除 out 替换为会话总用量）
-- **即时指标精简**：彻底去除含义模糊的单轮 `out`，本轮指标聚焦于「首 Token 延迟」与「生成速率」，视觉更清爽；
-- **会话总 Token 展示**：在会话累计组新增 `总用 xx` Token 消耗量统计（`累计输入 + 累计输出`），一目了然看清当前会话整体 Token 消耗。
-
-#### 0.6.13（提示词增强侧边栏隔离、看护批处理重打包与 3.14.5 适配）
-- **提示词增强侧边栏隔离**：`zcode-enhance-prompt.js` 补齐侧边栏边界判定（`isInsideSidePane`）与等高靠左优先保序，自愈分支杜绝误挂，彻底根治侧边栏辅助对话导致润色按钮飘移的竞态；
-- **看护批处理极速重打包**：`apply_after_exit.py` 重构任务调度引擎，同方向（应用或还原）多项补丁合并为单次批量调用，ASAR 重打包耗时从 20s+ 缩短至 2~3s，消除用户快速重启造成的进程冲突隐患；
-- **客户端版本认证**：完成最新客户端版本 `3.14.5` 实测认证，全量 250+ 项单元与集成测试全绿通过。
-
-#### 0.6.12（修复侧边栏辅助对话双 Composer 竞态跳动）
-- 修复当侧边栏开启「辅助对话」时双输入框在同一高度竞态导致 TPS 状态栏来回跳动的问题；
-- 新增 `isInsideSidePane` 与 `isInsideMainConversation` 边界判断，严格限定只在主界面对话框下显示，彻底消除跳动与轮次数据串台。
-
-#### 0.6.11（升级自愈与看护优化）
-- `sync.py` 引入客户端指纹比对，自动识别客户端升级并重置通知标记，自动调度看护；
-- `apply_after_exit.py` 补齐 7 项补丁，并实现 `_watchdog.pid` + `_watchdog.want` 单例互斥与需求合并；
-- `doctor.py` 增加 `--fix` 一键自愈命令。
-
-#### 0.6.10（旧脚本失效检测）
-- 修复 `_process_script_inject` 的 check 分支仅检查结构未比对内容的缺陷，新增内容哈希比对并标记 stale。
-
-#### 0.6.8 - 0.6.9（TPS 精度与菜单交互）
-- 状态栏平均命中率改为精确到两位小数；
-- 优化提示词右键菜单的关闭机制，消除滚动与多频事件误关问题。
-
-#### 0.6.5（ASAR 布局错位保护）
-- 引入 `_AsarWriteLock` 进程锁与文件锁；
-- 全域逐条 integrity 校验，防范错位启动崩溃。
-
-</details>
-
----
+0.6.x 的补丁链实现、自愈看护与逐版本变更记录已随重构退役——完整档案见
+git 历史（`git log` / 历史 tag）。本 README 只描述 1.0.0 起的保留功能。
 
 ## 许可协议
 

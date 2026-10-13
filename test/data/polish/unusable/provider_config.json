@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "config": {
+    "providerOrder": [
+      "prov-a",
+      "prov-b"
+    ],
+    "providerConfigRules": {
+      "providerRules": [
+        {
+          "providerId": "builtin:glm",
+          "providerName": "内置GLM",
+          "config": {
+            "group": "builtin",
+            "access": {
+              "type": "api_key",
+              "apiKey": ""
+            },
+            "api": {
+              "type": "openai-compatible",
+              "baseUrl": "http://127.0.0.1:9/builtin"
+            },
+            "personalModelIds": [
+              "glm-5"
+            ],
+            "modelOrder": [
+              "glm-5"
+            ]
+          }
+        },
+        {
+          "providerId": "prov-a",
+          "providerName": "供应商A",
+          "config": {
+            "group": "custom",
+            "access": {
+              "type": "api_key",
+              "apiKey": ""
+            },
+            "api": {
+              "type": "openai-compatible",
+              "baseUrl": "http://127.0.0.1:9/a"
+            },
+            "personalModelIds": [
+              "m-a1",
+              "m-a2"
+            ],
+            "modelOrder": [
+              "m-a1",
+              "m-a2"
+            ]
+          }
+        },
+        {
+          "providerId": "prov-b",
+          "providerName": "供应商B",
+          "config": {
+            "group": "custom",
+            "access": {
+              "type": "api_key",
+              "apiKey": ""
+            },
+            "api": {
+              "type": "anthropic-messages",
+              "baseUrl": "http://127.0.0.1:9/b"
+            },
+            "personalModelIds": [],
+            "modelOrder": []
+          }
+        }
+      ]
+    },
+    "modelConfigRules": {
+      "providerModelRules": [
+        {
+          "modelId": "m-a1",
+          "providerId": "prov-a",
+          "config": {
+            "properties": {
+              "contextWindow": 128000
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": [
+                  "low",
+                  "high"
+                ],
+                "map": ""
+              }
+            }
+          }
+        },
+        {
+          "modelId": "m-b1",
+          "providerId": "prov-b",
+          "config": {
+            "properties": {
+              "contextWindow": 200000
+            }
+          }
+        }
+      ],
+      "manualProviderModelRules": []
+    }
+  }
+}
