@@ -1,0 +1,4 @@
+{
+  "comment": "让 test/ 目录可作为模块入口加载：node --test <repo>/test/（目录位置参数）在本机 node/win32 组合下不递归找测试文件而是直接加载目录入口；main 指向 scripts/run-suite.cjs（刻意不在 test/ 下，避免裸 node --test 双重执行）。详见 scripts/run-suite.cjs 头注。",
+  "main": "../scripts/run-suite.cjs"
+}
