@@ -2,7 +2,7 @@
  * migrate.test.mjs —— src/migrate.mjs 契约测试（任务书指定清单）。
  *
  * 安全边界（test/data/README.md 硬性约束 + 任务书）：
- *   - 一切断言跑在 fixture 路径（test/data/migrate/ 与 test/.tmp/）上，绝不写真实 ~/.zcode、
+ *   - 一切断言跑在 fixture 路径（test/.tmp/ 下运行时生成）上，绝不写真实 ~/.zcode、
  *     绝不写 ZCode 安装目录；
  *   - 对真实安装目录的 legacy patcher --check 冒烟为**显式 opt-in**（ZTK_SMOKE_REAL=1 才启用，
  *     S5 处置：默认本地/CI 跑 fixture-only，绝不无感触碰真实用户文件）；
@@ -39,7 +39,7 @@ import {
 } from '../src/migrate.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DATA = path.join(REPO, 'test', 'data', 'migrate');      // 任务书指定 fixture 根
+const DATA = path.join(REPO, 'test', '.tmp', 'migrate', 'check'); // fixture 一律运行时生成于 test/.tmp/（gitignore）——仓库内不得出现 app.asar/.bak 等文件名，市场装包校验会拒
 const TMP = path.join(REPO, 'test', '.tmp', 'migrate');
 const LEGACY = path.join(REPO, 'legacy', 'zcode_patcher.py');
 
